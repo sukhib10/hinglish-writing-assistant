@@ -91,3 +91,8 @@ Pin `transformers==4.40.2` and `sentencepiece==0.2.2`:
   ~/venvs/hinglish/bin/huggingface-cli login
   # or export HF_TOKEN="hf_..."
   ```
+
+---
+
+## 7. Gradio Frontend Pinning (`gradio==4.44.1`)
+`gradio==4.44.1` is pinned for the web application UI. Newer Gradio releases (5.x and 6.x) mandate `huggingface-hub>=0.25.1` or `huggingface-hub>=1.16.0`, which would force upgrading `huggingface-hub` to 2.x and risk breaking compatibility with `transformers==4.40.2`. `huggingface_hub==0.23.5` must stay pinned for `transformers 4.40.2` and IndicTrans2 stability. Pinning `gradio==4.44.1` cleanly satisfies `huggingface-hub>=0.19.3` while preserving all existing core ML packages (`torch`, `numpy`, `transformers`, `huggingface_hub`, `tokenizers`, `fairseq`, `pandas`) intact.

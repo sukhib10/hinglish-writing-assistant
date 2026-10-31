@@ -31,3 +31,6 @@ sentencepiece==0.2.2
 safetensors==0.8.0
 huggingface-hub==0.36.2
 indictranstoolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git@3efb8418d0721b4ce267c2b3586899d313191357
+
+# Web Application UI
+gradio==4.44.1
