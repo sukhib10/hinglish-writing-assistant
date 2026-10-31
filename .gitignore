@@ -218,3 +218,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# AI Models, Weights, Checkpoints & Caches
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.zip
+*.tar.gz
+*.tgz
+models/
+checkpoints/
+.cache/
+huggingface/
+IndicXlit_models/
