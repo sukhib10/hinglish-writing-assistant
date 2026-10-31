@@ -34,3 +34,6 @@ indictranstoolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git@3efb
 
 # Web Application UI
 gradio==4.44.1
+fastapi==0.112.2
+starlette==0.38.6
+pydantic==2.10.6
