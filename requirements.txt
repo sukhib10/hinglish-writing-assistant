@@ -29,7 +29,7 @@ transformers==4.40.2
 tokenizers==0.19.1
 sentencepiece==0.2.2
 safetensors==0.8.0
-huggingface-hub==0.36.2
+huggingface-hub==0.23.5
 indictranstoolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git@3efb8418d0721b4ce267c2b3586899d313191357
 
 # Web Application UI
