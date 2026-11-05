@@ -388,3 +388,152 @@ To address the failure modes identified above without adding heavyweight depende
      This will directly eliminate catastrophic failures in rows 37 and 39.
 4. **Re-Evaluation Benchmark**:
    Re-run the evaluation script across all 40 test cases after deploying these pre- and post-processing modules to quantitatively measure the reduction in strict CER, word error rate, and the improvement in corpus chrF and exact match rate.
+
+*(Note: See [Section 7](#7-before-vs-after-normalisation-improvement-round) below for the empirical results of this re-evaluation benchmark following the implementation of fixes 1 and 3.)*
+
+---
+
+## 7. Before vs After: Normalisation Improvement Round
+
+### 7.1 Overview of Implemented Normalisation Fixes
+
+To target the most severe failure modes identified in Section 3 without introducing heavyweight model dependencies or training new architectures, two targeted pre- and post-processing improvements were implemented in `src/normalize.py`:
+
+1. **Pre-Transliteration SMS Spelling Normalisation** (`normalize_sms`):
+   Applied before passing input to AI4Bharat `IndicXlit`. It canonicalizes common informal Roman chat abbreviations and phonetic shorthands to standard Roman Hinglish using whole-word regex matching (`\b[a-zA-Z]+\b`). Examples include:
+   - `nhi` / `nahin` $\to$ `nahi`
+   - `pta` $\to$ `pata` (prevents acronym mistransliteration `PTA` / `पीटीए`)
+   - `mai` $\to$ `main` (prevents mistransliterating pronoun "I" as calendar month "May" / `मई`)
+   - `thik` $\to$ `theek` (prevents dental `थ` in `थिक` instead of retroflex `ठ` in `ठीक`)
+   - `hu` / `hun` $\to$ `hoon`
+   - `kyaa` $\to$ `kya`, `mujhey` / `muje` $\to$ `mujhe`, and `h` $\to$ `hai`
+
+2. **Post-Transliteration Devanagari-to-ASCII Digit Conversion** (`devanagari_to_ascii_digits`):
+   Applied immediately after `IndicXlit` transliteration. It converts native Devanagari numerals (`०, १, २, ३, ४, ५, ६, ७, ८, ९`) back to standard ASCII/Arabic digits (`0-9`) via Unicode character translation table (`str.maketrans`).
+
+The baseline pipeline behavior (normalisation disabled) remains fully reproducible by setting the environment variable `HINGLISH_NORMALIZE=0` or passing the `--no-normalize` flag to `eval/run_eval.py`.
+
+---
+
+### 7.2 Overall Performance Comparison
+
+The following table compares the baseline evaluation (`eval/results.csv`, normalisation OFF) with the normalised pipeline (`eval/results_normalized.csv`, normalisation ON) across all 40 test cases:
+
+| Metric | Baseline (Norm OFF) | Normalised (Norm ON) | Absolute Change | Relative Change (%) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Strict CER (%)** | 7.00% | 4.88% | -2.12% | -30.29% |
+| **Normalised CER (%)** | 6.67% | 4.54% | -2.13% | -31.93% |
+| **Strict Word Accuracy (1 - WER) (%)** | 81.85% | 86.29% | +4.44% | +5.42% |
+| **Normalised Word Accuracy (1 - WER) (%)** | 83.47% | 87.90% | +4.43% | +5.31% |
+| **Strict Exact Match** | 14 / 40 (35.0%) | 17 / 40 (42.5%) | +3 (+7.5%) | +21.43% |
+| **Corpus chrF** | 65.18 | 65.58 | +0.40 | +0.61% |
+| **Corpus BLEU** | 38.53 | 39.50 | +0.97 | +2.52% |
+
+---
+
+### 7.3 Per-Category Strict CER Comparison
+
+The table below breaks down the strict Character Error Rate (CER) across all 7 evaluation categories:
+
+| Category | Test Count | Baseline Strict CER (%) | Normalised Strict CER (%) | Absolute Change | Status |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| `spelling` | 5 | 20.31% (13 / 64) | 3.12% (2 / 64) | -17.19% | Substantial improvement |
+| `numbers` | 5 | 14.75% (18 / 122) | 5.74% (7 / 122) | -9.01% | Substantial improvement |
+| `slang` | 6 | 8.63% (12 / 139) | 7.91% (11 / 139) | -0.72% | Minor improvement (Row 34 digit fix) |
+| `long` | 6 | 5.75% (18 / 313) | 5.75% (18 / 313) | 0.00% | Unchanged |
+| `names` | 5 | 5.42% (9 / 166) | 5.42% (9 / 166) | 0.00% | Unchanged |
+| `english_mix` | 7 | 2.55% (5 / 196) | 2.55% (5 / 196) | 0.00% | Unchanged |
+| `short` | 6 | 1.16% (1 / 86) | 1.16% (1 / 86) | 0.00% | Unchanged |
+
+---
+
+### 7.4 Row-Level Examples: Before vs After
+
+The following row examples from `eval/results.csv` and `eval/results_normalized.csv` illustrate the concrete effects of digit mapping and SMS spelling expansion:
+
+#### 1. Row 25 (`numbers`)
+- **Hinglish Input**: `mujhe 500 rupees chahiye`
+- **Reference Hindi**: `मुझे 500 रुपये चाहिए`
+- **Output Hindi (Before)**: `मुझे ५०० रुपीस चाहिए`
+- **Output Hindi (After)**: `मुझे 500 रुपीस चाहिए`
+- **Reference English**: `I need 500 rupees`
+- **Output English (Before)**: `I need 500 rupees.`
+- **Output English (After)**: `I need 500 rupees.`
+- **Analysis**: Strict CER dropped from 0.25 (25.00%) to 0.10 (10.00%). Devanagari numerals `५००` were successfully converted to ASCII `500`. However, the English loanword `rupees` remains transliterated as `रुपीस` instead of standard Hindi `रुपये`.
+
+#### 2. Row 29 (`numbers`)
+- **Hinglish Input**: `bill 1250 rupees ka aaya hai`
+- **Reference Hindi**: `बिल 1250 रुपये का आया है`
+- **Output Hindi (Before)**: `बिल १२५० रुपीस का आया है`
+- **Output Hindi (After)**: `बिल 1250 रुपीस का आया है`
+- **Reference English**: `The bill has come to 1250 rupees`
+- **Output English (Before)**: `The bill has come for 1250 rupees.`
+- **Output English (After)**: `The bill has come for 1250 rupees.`
+- **Analysis**: Strict CER dropped from 0.25 (25.00%) to 0.0833 (8.33%). The digits `१२५०` were converted back to ASCII `1250`, while `rupees` remained `रुपीस`.
+
+#### 3. Row 37 (`spelling`)
+- **Hinglish Input**: `mujhe nhi pta`
+- **Reference Hindi**: `मुझे नहीं पता`
+- **Output Hindi (Before)**: `मुझे नही पीटीए`
+- **Output Hindi (After)**: `मुझे नही पता`
+- **Reference English**: `I don't know`
+- **Output English (Before)**: `I don't have a PTA.`
+- **Output English (After)**: `I don't know`
+- **Analysis**: Strict CER decreased from 0.3846 (38.46%) to 0.0769 (7.69%). Pre-normalising `nhi` $\to$ `nahi` and `pta` $\to$ `pata` resolved the catastrophic mistransliteration of `pta` as the acronym `पीटीए`. Downstream, `IndicTrans2` flipped from producing the nonsensical English sentence "I don't have a PTA." (chrF 38.68) to the exact reference translation "I don't know" (chrF 100.0).
+
+#### 4. Row 39 (`spelling`)
+- **Hinglish Input**: `mai thik hu`
+- **Reference Hindi**: `मैं ठीक हूँ`
+- **Output Hindi (Before)**: `मई थिक हू`
+- **Output Hindi (After)**: `मैं ठीक हूँ`
+- **Reference English**: `I am fine`
+- **Output English (Before)**: `May is fine.`
+- **Output English (After)**: `I'm alright.`
+- **Analysis**: Strict CER dropped from 0.4545 (45.45%) to 0.00% (an exact match). Canonicalizing `mai` $\to$ `main`, `thik` $\to$ `theek`, and `hu` $\to$ `hoon` fixed the pronoun-to-calendar-month error (`मई` $\to$ `मैं`) and the dental consonant error (`थिक` $\to$ `ठीक`). In translation, the output changed from "May is fine." to the valid colloquial translation "I'm alright.".
+
+---
+
+### 7.5 What Did Not Improve (Underlying Model Limitations)
+
+While lexical normalisation resolved isolated numeral representations and frequent SMS abbreviations, several error classes remained entirely unaffected. These reflect intrinsic limitations of the underlying transliteration and translation models (`IndicXlit` and `IndicTrans2`) that cannot be addressed by shallow string rules:
+
+1. **Proper Names & City Names (Rows 21, 22, 23)**:
+   - **Row 21**: `Priya` transliterated as `प्रिय` instead of `प्रिया` (loss of terminal vowel `a`).
+   - **Row 22**: `Delhi` transliterated phonetically as `डेल्ही` instead of standard Hindi lemma `दिल्ली`.
+   - **Row 23**: `Sneha` transliterated as `स्नेह` instead of `स्नेहा` (loss of terminal vowel `a`).
+   - *Reason*: `IndicXlit` lacks an Indian named entity gazetteer and applies generic phonetic decomposition to proper nouns.
+
+2. **English Loanword Transliterations (Rows 25, 32, 34)**:
+   - **Row 25 & 29**: `rupees` transliterated phonetically as `रुपीस` rather than Hindi `रुपये`.
+   - **Row 32**: `idea` transliterated letter-by-letter as `आईडीईए` ("I-D-E-A") rather than standard `आइडिया`.
+   - **Row 34**: `minute` transliterated as `मिन्यूट` rather than standard `मिनट`.
+   - *Reason*: `IndicXlit` has no loanword vocabulary to reconcile non-phonetic English orthography with conventional Devanagari loanword forms.
+
+3. **Cross-Lingual Semantic Ambiguity (Row 14)**:
+   - **Row 14**: `meeting ka time change ho gaya hai` $\to$ `मीटिंग का टाइम चंगे हो गया है` $\to$ *"The time of the meeting has become good."*
+   - *Reason*: The English verb/noun `change` is homographic with the Romanized Punjabi/Hindi adjective *changey* (`चंगे`, meaning good/fine). Without context-aware language identification or semantic disambiguation, the pipeline selects the regional meaning.
+
+4. **Grammatical Gender Agreement (Row 12)**:
+   - **Row 12**: `hamare college mein is saal naya library ban raha hai` $\to$ `हमारे कॉलेज में इस साल नया लाइब्रेरी बन रहा है` (reference: `नई लाइब्रेरी बन रही है`).
+   - *Reason*: Transliteration operates strictly character-by-character without syntactic or grammatical parsing. It faithfully reproduces the user's incorrect masculine agreement (`naya` $\to$ `नया`, `ban raha hai` $\to$ `बन रहा है`), unable to enforce the feminine gender of borrowed noun `लाइब्रेरी`.
+
+5. **Phonetic Distortion in Family Terms (Row 10)**:
+   - **Row 10**: `meri behen ne kaha...` $\to$ `मेरी बेहें ने कहा...` $\to$ *"My sister-in-law said..."*.
+   - *Reason*: `IndicXlit` transliterates `behen` with an unintended nasalized vowel (`बेहें` instead of standard `बहन`). `IndicTrans2` subsequently interprets `बेहें` as "sister-in-law" rather than "sister", severely altering the sentence meaning.
+
+6. **Standard vs. Informal Nasalization in Negation (Row 36)**:
+   - **Row 36**: `mujhe nahi pata` $\to$ `मुझे नही पता` (reference: `मुझे नहीं पता`, strict CER = 0.0769).
+   - *Reason*: `IndicXlit` consistently omits the anusvara on `नही`. Because `normalize_sms` only rewrites `nhi` $\to$ `nahi`, the input `nahi` remains unmodified and continues to generate `नही`.
+
+---
+
+### 7.6 Limitations of the Normalisation Fix
+
+1. **Small, Rule-Based Dictionary (Not a Model Improvement)**:
+   The fix consists of a curated 11-word dictionary in `src/normalize.py` and a regex character map. It does not enhance the generalization or vocabulary of the underlying neural models (`IndicXlit`, `IndicTrans2`). Unseen abbreviations or alternative phonetic spellings (e.g. `nhii`, `knw`, `msg`) remain unhandled.
+2. **Side Effects of the Standalone `"h" -> "hai"` Rule**:
+   The word-boundary replacement for the single letter `h` (`\bh\b` $\to$ `hai`) carries risk in general text. While intended to expand the colloquial single-letter Hindi copula ("kya scene h" $\to$ "kya scene hai"), it can unintentionally corrupt English middle initials (e.g., "John H. Smith"), single-letter variable names, or abbreviations.
+3. **Risk of Overfitting to the Test Set**:
+   The dictionary entries were selected based on the specific error patterns observed in the 40 test cases of `data/test_cases.csv`. A clean held-out test suite with independent Hinglish inputs is required to verify that these rules generalize and do not cause regressions on broader conversational text.
+4. **Single-Run Benchmark**:
+   All reported metrics originate from a single deterministic evaluation pass over the 40 test cases.
