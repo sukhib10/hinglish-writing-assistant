@@ -3,6 +3,8 @@ Pipeline module for Hinglish Writing Assistant.
 Provides functions for transliteration, phrasing improvement, and translation.
 """
 
+import os
+import requests
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit import IndicProcessor
@@ -70,11 +72,81 @@ def transliterate(text: str) -> str:
 def improve_phrasing(text: str) -> str:
     """
     Improves Hindi phrasing and grammar.
-    Currently a placeholder that returns text unchanged.
-    BharatGen Param1 or an LLM prompt will replace this step later.
+    Supports swappable backends via PHRASING_BACKEND env var:
+    - 'gemini' (default): Calls the Gemini REST API via requests with GEMINI_API_KEY and a 10s timeout.
+    - 'none': Returns text unchanged.
+    Placeholder note: BharatGen Param1 or an LLM prompt will replace this step later.
     """
-    # Placeholder: Param1 / prompt-based rephrasing will be added here
-    return text
+    if not text or not text.strip():
+        return text
+
+    backend = os.environ.get("PHRASING_BACKEND", "gemini").strip().lower()
+
+    if backend == "none":
+        return text
+
+    if backend != "gemini":
+        print(f"Warning: Unsupported PHRASING_BACKEND '{backend}'. Supported: 'gemini', 'none'. Returning input text unchanged.")
+        return text
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key or not api_key.strip():
+        print("Warning: GEMINI_API_KEY environment variable is missing or empty. Returning input text unchanged.")
+        return text
+
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+    headers = {
+        "x-goog-api-key": api_key.strip(),
+        "Content-Type": "application/json",
+    }
+
+    prompt = (
+        "Rewrite the Hindi sentence in clear, natural Hindi, "
+        "keep meaning, names and numbers exactly, add nothing, return only the sentence:\n\n"
+        f"{text.strip()}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code != 200:
+            print(f"Warning: Gemini API returned status code {response.status_code}. Returning input text unchanged.")
+            return text
+
+        data = response.json()
+        candidates = data.get("candidates")
+        if not candidates or not isinstance(candidates, list):
+            print("Warning: Gemini API response contained no candidates. Returning input text unchanged.")
+            return text
+
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+        if not parts or not isinstance(parts, list):
+            print("Warning: Gemini API response candidate contained no parts. Returning input text unchanged.")
+            return text
+
+        reply_text = parts[0].get("text", "")
+        if not reply_text:
+            return text
+
+        # Strip surrounding whitespace and quotes from the model's reply
+        cleaned = reply_text.strip().strip("\"'“”‘’`").strip()
+        return cleaned if cleaned else text
+
+    except Exception as exc:
+        print(f"Warning: Phrasing improvement request failed: {type(exc).__name__}. Returning input text unchanged.")
+        return text
 
 
 def translate_to_english(text: str) -> str:
