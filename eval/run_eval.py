@@ -5,6 +5,8 @@ Features:
 1. Runs Hinglish inputs through transliterate() and translate_to_english().
    Phrasing improvement is OFF by default (PHRASING_BACKEND=none inside the script);
    an optional --phrasing flag runs improve_phrasing() between them.
+   Normalization (SMS spelling and digit conversion) is ON by default;
+   an optional --no-normalize flag disables it to reproduce the baseline.
 2. Computes Hindi scores with jiwer:
    - Character Error Rate (CER)
    - Word Accuracy (1 - WER)
@@ -14,7 +16,9 @@ Features:
 3. Computes English translation scores with sacrebleu:
    - chrF (sentence-level & corpus-level)
    - BLEU (sentence-level & corpus-level)
-4. Saves per-row results to eval/results.csv in UTF-8 with BOM:
+4. Saves per-row results in UTF-8 with BOM:
+   - eval/results_normalized.csv (default, when normalization is ON)
+   - eval/results.csv (baseline, when normalization is OFF via --no-normalize)
    Columns: id, category, hinglish, reference_hindi, output_hindi,
             CER strict, CER normalised, exact match, reference_english,
             output_english, chrF
@@ -86,7 +90,8 @@ def normalize_hindi(text: str) -> str:
 def evaluate_dataset(
     data_path: Path,
     output_path: Path,
-    use_phrasing: bool = False
+    use_phrasing: bool = False,
+    use_normalize: bool = True
 ) -> None:
     """
     Runs the pipeline over the evaluation dataset and computes metrics.
@@ -100,12 +105,17 @@ def evaluate_dataset(
             "Package 'sacrebleu' is not installed. Please install sacrebleu to run evaluation."
         )
 
+    # Configure normalization via environment variable and module flag
+    os.environ["HINGLISH_NORMALIZE"] = "1" if use_normalize else "0"
+
     # Set PHRASING_BACKEND based on flag
     if not use_phrasing:
         os.environ["PHRASING_BACKEND"] = "none"
 
     # Import pipeline functions
     from src.pipeline import transliterate, improve_phrasing, translate_to_english
+    import src.pipeline
+    src.pipeline.USE_NORMALIZATION = use_normalize
 
     # Read test cases (UTF-8 with BOM)
     if not data_path.exists():
@@ -123,6 +133,12 @@ def evaluate_dataset(
     print("=" * 80)
     print(f"Dataset Path        : {data_path}")
     print(f"Total Test Cases    : {total_rows}")
+    norm_status = (
+        "ON (SMS spelling & digit normalization)"
+        if use_normalize
+        else "OFF (HINGLISH_NORMALIZE=0)"
+    )
+    print(f"Normalization       : {norm_status}")
     phrasing_status = (
         f"ON (using {os.environ.get('PHRASING_BACKEND', 'gemini')})"
         if use_phrasing
@@ -397,6 +413,27 @@ def main():
         action="store_true",
         help="Enable phrasing improvement stage (improve_phrasing) between transliteration and translation."
     )
+    if hasattr(argparse, "BooleanOptionalAction"):
+        parser.add_argument(
+            "--normalize",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Enable SMS and digit normalization (default: on)."
+        )
+    else:
+        parser.add_argument(
+            "--normalize",
+            dest="normalize",
+            action="store_true",
+            default=True,
+            help="Enable SMS and digit normalization (default: on)."
+        )
+        parser.add_argument(
+            "--no-normalize",
+            dest="normalize",
+            action="store_false",
+            help="Disable SMS and digit normalization."
+        )
     parser.add_argument(
         "--data",
         type=str,
@@ -406,16 +443,24 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default=str(PROJECT_ROOT / "eval" / "results.csv"),
-        help="Path to output results CSV file (default: eval/results.csv)."
+        default=None,
+        help="Path to output results CSV file (default: eval/results_normalized.csv when normalized, eval/results.csv when unnormalized)."
     )
 
     args = parser.parse_args()
 
+    # Determine output path based on normalization setting when not explicitly provided
+    if args.output is None:
+        output_filename = "results_normalized.csv" if args.normalize else "results.csv"
+        output_path = PROJECT_ROOT / "eval" / output_filename
+    else:
+        output_path = Path(args.output)
+
     evaluate_dataset(
         data_path=Path(args.data),
-        output_path=Path(args.output),
+        output_path=output_path,
         use_phrasing=args.phrasing,
+        use_normalize=args.normalize,
     )
 
 

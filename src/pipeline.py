@@ -9,6 +9,23 @@ import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit import IndicProcessor
 
+from src.normalize import normalize_sms, devanagari_to_ascii_digits
+
+# Module-level flag for pre/post-processing normalization (default True)
+# Controlled by environment variable HINGLISH_NORMALIZE ("0" disables it)
+USE_NORMALIZATION = os.environ.get("HINGLISH_NORMALIZE", "1").strip() != "0"
+
+
+def _is_normalization_enabled() -> bool:
+    """
+    Checks if normalization is active.
+    Returns False if env var HINGLISH_NORMALIZE is '0', otherwise checks USE_NORMALIZATION.
+    """
+    if os.environ.get("HINGLISH_NORMALIZE", "").strip() == "0":
+        return False
+    return bool(USE_NORMALIZATION)
+
+
 # Module-level cache variables for lazy loading
 _xlit_engine = None
 _translation_model = None
@@ -56,17 +73,29 @@ def transliterate(text: str) -> str:
     """
     Converts Roman-script Hinglish text into Devanagari Hindi.
     Uses AI4Bharat IndicXlit translit_sentence.
+    Applies normalize_sms() on the Roman input BEFORE IndicXlit and
+    devanagari_to_ascii_digits() on the Hindi output AFTER IndicXlit
+    when normalization is enabled.
     """
     if not text or not text.strip():
         return ""
     
+    norm_enabled = _is_normalization_enabled()
+    input_text = normalize_sms(text) if norm_enabled else text
+
     engine = _get_xlit_engine()
-    result = engine.translit_sentence(text.strip())
+    result = engine.translit_sentence(input_text.strip())
     
     # IndicXlit returns a dict mapping lang code to the converted sentence
     if isinstance(result, dict):
-        return result.get("hi", "").strip()
-    return str(result).strip()
+        hindi_text = result.get("hi", "").strip()
+    else:
+        hindi_text = str(result).strip()
+
+    if norm_enabled:
+        hindi_text = devanagari_to_ascii_digits(hindi_text)
+
+    return hindi_text
 
 
 def improve_phrasing(text: str) -> str:
@@ -183,11 +212,13 @@ def translate_to_english(text: str) -> str:
 def run_pipeline(text: str, improve: bool = False, translate: bool = False) -> dict:
     """
     Chains the writing assistant stages:
-    1. Transliteration (Hinglish -> Hindi)
+    1. Transliteration (Hinglish -> Hindi) with SMS & digit normalization
     2. Optional Phrasing Improvement
     3. Optional Translation (Hindi -> English)
     """
     # Stage 1: Transliterate Roman Hinglish to Hindi
+    # transliterate() applies normalize_sms() on Roman input before IndicXlit
+    # and devanagari_to_ascii_digits() on Hindi output after IndicXlit
     hindi_text = transliterate(text)
     
     # Stage 2: Phrasing improvement (optional)
