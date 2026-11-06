@@ -362,3 +362,8 @@ hinglish-writing-assistant/
   - AI4Bharat open benchmark dataset for Indic transliteration (referenced in project brief).
 - **Google Gemini API**:
   - Generative Language REST API used as an external swappable backend for phrasing improvement.
+ 
+## 11 . Results 
+<img width="1545" height="552" alt="36810534-6b4b-4463-a4ae-ab5ba4803ece" src="https://github.com/user-attachments/assets/4d49830d-aa2d-44bc-8159-6341f30e4fdd" />
+<img width="1591" height="637" alt="9269d8f3-6722-448c-a7c0-f86d8a59566c" src="https://github.com/user-attachments/assets/75e24ea8-d06f-4f30-beca-9acac6f31ba8" />
+<img width="1584" height="651" alt="d18b5d29-6541-4071-81c0-7dd546e956b7" src="https://github.com/user-attachments/assets/707eb960-eba1-479c-a0ed-6c17c35bbb0c" />
